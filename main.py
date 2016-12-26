@@ -1,7 +1,9 @@
 import numpy as np
 import math
 from scipy.integrate import dblquad
-from tool import get_type2_promap
+from tool import *
+
+
 '''
  无人机类，
     属性
@@ -45,15 +47,18 @@ E = np.ones((Nx, Ny))  # 单位矩阵用于计算
 
 ### 信息素的基本信息
 
-init_phero=2 # 初始信息素的值
+init_phero = 2  # 初始信息素的值
 # 吸引信息素信息
-G_a=0.5 # 信息素传播因子
-E_a=0.5 # 信息素挥发因子
-D_a=1   # 信息素的释放量
+G_a = 0.5  # 信息素传播因子
+E_a = 0.5  # 信息素挥发因子
+D_a = 1  # 信息素的释放量
 # 挥发信息素信息
-G_r=0.5 # 信息素传播因子
-E_r=0.5 # 信息素挥发因子
-D_r=10  # 信息素的释放量
+G_r = 0.5  # 信息素传播因子
+E_r = 0.5  # 信息素挥发因子
+D_r = 10  # 信息素的释放量
+
+# 搜索的步数
+search_step = 5
 
 
 class UAV:
@@ -80,49 +85,89 @@ class UAV:
 
         # 访问信息图 数据结构同概率分布图
         self.detect_maps = np.zeros((Nt, Nx, Ny))
-        self.last_vist_map=np.zeors((Nx,Ny)) # 上一次访问时间，根据访问矩阵来更新
-        self.phero_switch=np.zeros((Nx,Ny)) # 信息素开关矩阵
+        self.last_vist_map = np.zeors((Nx, Ny))  # 上一次访问时间，根据访问矩阵来更新
+        self.phero_switch = np.zeros((Nx, Ny))  # 信息素开关矩阵
+
     def decision(self):
     # 决策函数，根据性能指标计算，返回可行路径中的一点
+    # 暂时用前序遍历算法 处理一下
+        path=[]
+        path.append(self.site)
+        best_path=[] # 用来存储最佳路径
+        best_value=0 # 用来存储最佳value
+
+        # 先满上
+        while len(path) < search_step:
+            top = path[-1]
+            neighbor_list = get_neighbor(top)
+            path.append(neighbor_list[0])
+
+        while len(path)>0:
+            # 判断是否能够替换成最佳路径
+            value=0
+            norepeat_num=len(set(path)) # 用set 的长度来判断path中不重复的元素个数
+            if norepeat_num==search_step:
+                value=self.get_path_value(path)
+            if value>best_value:
+                best_value=value
+                best_path=path.copy()
+            # 重新添加一条路径，包括两部分，删除，和添加
+            throw = path.pop()
+            while len(path)>0:
+                top=path[-1]
+                top_neighbor_list=get_neighbor(top)
+                index=top_neighbor_list.index(throw)
+                if index<len(top_neighbor_list)-1: # 不是最后一个
+                    path.append(top_neighbor_list[index+1])
+                    while len(path) < search_step:
+                        top = path[-1]
+                        neighbor_list = get_neighbor(top)
+                        path.append(neighbor_list[0])
+                    break # 满了search_step就可以break 出来
+                else:
+                    throw=path.pop() #再出一个
+        return best_path
+
+    def get_path_value(self,path):
+        # 返回path的花费，path 为list中存tuple [(1,2),(2,3)]
+        value=0
+
+        return value
+
+
+
+
 
     def update_phero(self):
         # 根据访问信息更新信息素
-        GP_a=self.get_G_alpha_map()
-        GP_r=self.get_G_r_map()
-        self.phero_att_map=(E-self.visit_map)*(1-E_a)*((1-G_a)*(self.phero_att_map+D_a*self.phero_switch)+GP_a)
-        self.phero_rej_map=(1-E_r)*((1-G_r)*(self.phero_rej_map+D_r*self.visit_map)+GP_r)
+        GP_a = self.get_G_alpha_map()
+        GP_r = self.get_G_r_map()
+        self.phero_att_map = (E - self.visit_map) * (1 - E_a) * (
+        (1 - G_a) * (self.phero_att_map + D_a * self.phero_switch) + GP_a)
+        self.phero_rej_map = (1 - E_r) * ((1 - G_r) * (self.phero_rej_map + D_r * self.visit_map) + GP_r)
+
     def get_G_alpha_map(self):
         # 计算吸引信息素扩散矩阵
-        tmep_map=G_a*(self.phero_att_map+self.phero_switch*D_a)
-        G_alpha_map=np.zeros((Nx,Ny))
+        tmep_map = G_a * (self.phero_att_map + self.phero_switch * D_a)
+        G_alpha_map = np.zeros((Nx, Ny))
         for i in range(Nx):
             for j in range(Ny):
-                neighbor_num=0
-                for neighbor_x in range(3):
-                    for neighbor_y in range(3):
-                        g_x=i+neighbor_x-1
-                        g_y=j+neighbor_y-1
-                        if(0<=g_x<Nx and 0<=g_y<Ny):
-                            neighbor_num+=1
-                            G_alpha_map[i,j]+=tmep_map[g_x,g_y]
-                G_alpha_map[i,j]/=neighbor_num
+                neighbor_list = get_neighbor((i,j))
+                for site in neighbor_list:
+                    G_alpha_map[i, j] += tmep_map[site[0], site[1]]
+                G_alpha_map[i, j] /= len(neighbor_list)
         return G_alpha_map
 
     def get_G_r_map(self):
         # 计算吸引信息素扩散矩阵
         tmep_map = G_r * (self.phero_rej_map + self.visit_map * D_r)
-        G_r_map=np.zeros((Nx,Ny))
+        G_r_map = np.zeros((Nx, Ny))
         for i in range(Nx):
             for j in range(Ny):
-                neighbor_num=0
-                for neighbor_x in range(3):
-                    for neighbor_y in range(3):
-                        g_x=i+neighbor_x-1
-                        g_y=j+neighbor_y-1
-                        if(0<=g_x<Nx and 0<=g_y<Ny):
-                            neighbor_num+=1
-                            G_r_map[i,j]+=tmep_map[g_x,g_y]
-                G_r_map[i,j]/=neighbor_num
+                neighbor_list = get_neighbor((i, j))
+                for site in neighbor_list:
+                    G_r_map[i, j] += tmep_map[site[0], site[1]]
+                G_r_map[i, j] /= len(neighbor_list)
         return G_r_map
 
     def update_search(self):
@@ -131,53 +176,52 @@ class UAV:
 
         # 先分子
         H = self.visit_map * PD + (E - self.visit_map) * PF
-        for pro_map,detect_map,i in zip(self.pro_maps,self.detect_maps,range(Nt)):
-            if self.detect_flag[i]==0:  # 等于0的部分不需要更新
+        for pro_map, detect_map, i in zip(self.pro_maps, self.detect_maps, range(Nt)):
+            if self.detect_flag[i] == 0:  # 等于0的部分不需要更新
                 continue
             numerator = (H * (2 * detect_map - E) + (E - detect_map)) * pro_map
-            pdn=E*PF+(PD-PF)*pro_map
-            denominator=pdn*(2*detect_map-E)+(E-detect_map)
-            self.pro_maps[i]=numerator/denominator
+            pdn = E * PF + (PD - PF) * pro_map
+            denominator = pdn * (2 * detect_map - E) + (E - detect_map)
+            self.pro_maps[i] = numerator / denominator
             # 注意这里直接改变pro_map 没用这样写不改变 pro_maps，np.array()类型传回的不是引用
-
 
     def predic_target(self):
         # 根据探测结果更新搜素图
         # 预测目标在delt_t 后的概率分布类似于初始化的过程
         for target_i in range(Nt):
-            if self.detect_flag[target_i] == 0: # 已经探测到的目标 不需要继续更新将detect_flag置0
+            if self.detect_flag[target_i] == 0:  # 已经探测到的目标 不需要继续更新将detect_flag置0
                 continue
 
             v = target_msg[target_i, 2]  # v 速度
             phi = target_msg[target_i, 3]  # phi 角度
-            now_pro_map_ij = self.pro_maps[target_i] # 目前的概率
-            predict_pro_map=np.zeros((Nx,Ny))
+            now_pro_map_ij = self.pro_maps[target_i]  # 目前的概率
+            predict_pro_map = np.zeros((Nx, Ny))
             if target_type[target_i] == 0 or target_type[target_i] == 1:
                 # 不知道速度布朗运动,一种正态分布
                 sigma = delta_t * sigma_e
-                for condition_i in range(Nx): #条件概率 条件x_i
-                    for condition_j in range(Ny): #条件概率 条件y_i
-                        condition_pro_map_ij=get_Gauss_map([condition_i,condition_j],sigma)# 条件概率图
-                        predict_pro_map+=now_pro_map_ij[condition_i,condition_j]*condition_pro_map_ij # 全概率公式
+                for condition_i in range(Nx):  # 条件概率 条件x_i
+                    for condition_j in range(Ny):  # 条件概率 条件y_i
+                        condition_pro_map_ij = get_Gauss_map([condition_i, condition_j], sigma)  # 条件概率图
+                        predict_pro_map += now_pro_map_ij[condition_i, condition_j] * condition_pro_map_ij  # 全概率公式
             elif target_type[target_i] == 2:
                 # 类似于初始化的时候
-                for condition_i in range(Nx): #条件概率 条件x_i
-                    for condition_j in range(Ny): #条件概率 条件y_i
-                        R=v*delta_t
-                        core=[condition_i,condition_j]
-                        condition_pro_map_ij =get_type2_promap(core,R)   # 条件概率图
-                        predict_pro_map=now_pro_map_ij[condition_i,condition_j]*condition_pro_map_ij
+                for condition_i in range(Nx):  # 条件概率 条件x_i
+                    for condition_j in range(Ny):  # 条件概率 条件y_i
+                        R = v * delta_t
+                        core = [condition_i, condition_j]
+                        condition_pro_map_ij = get_type2_promap(core, R)  # 条件概率图
+                        predict_pro_map = now_pro_map_ij[condition_i, condition_j] * condition_pro_map_ij
             elif target_type[target_i] == 3:
                 # 一起位移而已，先放着
-                for condition_i in range(Nx): #条件概率 条件x_i
-                    for condition_j in range(Ny): #条件概率 条件y_i
+                for condition_i in range(Nx):  # 条件概率 条件x_i
+                    for condition_j in range(Ny):  # 条件概率 条件y_i
 
             self.pro_maps[target_i] = predict_pro_map
 
 
-def get_Gauss_map(core,sigma):
+def get_Gauss_map(core, sigma):
     # 返回gauss
-    pro_map=np.zeros((Nx,Ny))
+    pro_map = np.zeros((Nx, Ny))
     mu_x = core[0]  # mean_x
     mu_y = core[1]  # mean_y
     for i in range(Nx):
@@ -189,53 +233,55 @@ def get_Gauss_map(core,sigma):
             low_bound_y = y_j - Ly / 2
             hig_bound_y = y_j + Ly / 2
             pro_map[i, j] = dblquad(Gaussian, low_bound_x, hig_bound_x, lambda x: low_bound_y,
-                                            lambda x: hig_bound_y, args=(mu_x, mu_y, sigma))
+                                    lambda x: hig_bound_y, args=(mu_x, mu_y, sigma))
     pro_map = pro_map / np.sum(pro_map)
     return pro_map
 
+
 def init_target_position():
     #     初始化目标的位置，type 0 随机生成，其他的高斯分布生成，越界了就再来一次
-    for target, type,target_true in zip(target_msg, target_type,target_true_msg):
+    for target, type, target_true in zip(target_msg, target_type, target_true_msg):
         if (type == 0):
             # 均匀分布随机
             point_x = np.random.randint(0, Nx);  # 左闭右开区间
             point_y = np.random.randint(0, Ny);  # 左闭右开区间
-            target=[point_x,point_y]
+            target = [point_x, point_y]
         else:
-            u_x= target[0]*Lx+Lx / 2
-            u_y= target[1]*Ly+Ly / 2
-            mean=[u_x,u_y]
-            cov=[[sigma_0,0],[0,sigma_0]]
-            coordinate_x,coordinate_y=-1,-1
-            while(0<coordinate_x<Nx*Lx and 0<coordinate_y<Ny*Ly):
-                coordinate_x,coordinate_y=np.random.multivariate_normal(mean,cov)
-            target_true[0]=np.floor(coordinate_x/Lx) # 向下取整
-            target_true[1]=np.floor(coordinate_x/Lx)
+            u_x = target[0] * Lx + Lx / 2
+            u_y = target[1] * Ly + Ly / 2
+            mean = [u_x, u_y]
+            cov = [[sigma_0, 0], [0, sigma_0]]
+            coordinate_x, coordinate_y = -1, -1
+            while (0 < coordinate_x < Nx * Lx and 0 < coordinate_y < Ny * Ly):
+                coordinate_x, coordinate_y = np.random.multivariate_normal(mean, cov)
+            target_true[0] = np.floor(coordinate_x / Lx)  # 向下取整
+            target_true[1] = np.floor(coordinate_x / Lx)
+
 
 def target_move():
     # 目标移动 主要是处理边界，边界用无限拼接来处理，类似贪吃蛇。
-    for target, type,target_true in zip(target_msg, target_type,target_true_msg):
+    for target, type, target_true in zip(target_msg, target_type, target_true_msg):
         u_x = target_true[0] * Lx + Lx / 2
         u_y = target_true[1] * Ly + Ly / 2
-        new_u_x,new_u_y=0,0
-        if type==0 or type==1:
+        new_u_x, new_u_y = 0, 0
+        if type == 0 or type == 1:
             # 正态分布
             mean = [u_x, u_y]
-            cov = [[sigma_e*delta_t, 0], [0, sigma_e*delta_t]]
+            cov = [[sigma_e * delta_t, 0], [0, sigma_e * delta_t]]
             new_u_x, new_u_y = np.random.multivariate_normal(mean, cov)
-        elif type==2:
-            phi=np.random.random()*np.pi  # 均匀分布随机一个角度phi
-            new_u_x=u_x+target_msg[2]*np.cos(phi)
+        elif type == 2:
+            phi = np.random.random() * np.pi  # 均匀分布随机一个角度phi
+            new_u_x = u_x + target_msg[2] * np.cos(phi)
             new_u_y = u_y + target_msg[2] * np.sin(phi)
-        elif type==3:
-            phi=target_msg[3]
-            new_u_x=u_x+target_msg[2]*np.cos(phi)
+        elif type == 3:
+            phi = target_msg[3]
+            new_u_x = u_x + target_msg[2] * np.cos(phi)
             new_u_y = u_y + target_msg[2] * np.sin(phi)
         new_u_x = (new_u_x / (Lx * Nx) - np.floor(new_u_x / (Lx * Nx))) * (Lx * Nx)  # 无限拼接的变换
         new_u_y = (new_u_y / (Ly * Ny) - np.floor(new_u_y / (Ly * Ny))) * (Ly * Ny)  # 无限拼接的变换
 
-        target_true[0]=np.floor(new_u_x/Lx)*Lx+Lx/2
-        target_true[1]=np.floor(new_u_y/Ly)*Ly+Ly/2
+        target_true[0] = np.floor(new_u_x / Lx) * Lx + Lx / 2
+        target_true[1] = np.floor(new_u_y / Ly) * Ly + Ly / 2
 
 
 # 初始化目标类型
@@ -274,6 +320,7 @@ def cal_connect_map(UAV_group):
     result = (sum > np.zeros(shape)).astype(float)
     return result
 
+
 # 初始化目标概率图搜索图
 def init_pro_map():
     # 数据结构定义为list里面放每个目标的概率分布图np.array()
@@ -292,8 +339,8 @@ def init_pro_map():
             sigma = sigma_0 + t0 * sigma_e
             targeti_pro_map = get_Gauss_map([mu_x, mu_y], sigma)
         elif target_type[i] == 2:
-        # 超级难得积分
-            sigma=sigma_0
+            # 超级难得积分
+            sigma = sigma_0
         elif target_type[i] == 3:
             # 高斯分布积分
             sigma = sigma_0
@@ -304,21 +351,23 @@ def init_pro_map():
         # 归一化
         targeti_pro_map = targeti_pro_map / np.sum(targeti_pro_map)
 
-        if target_type==2:
-            temp_pro_map=np.zeros((Nx,Ny))
+        if target_type == 2:
+            temp_pro_map = np.zeros((Nx, Ny))
             for i in range(Nx):
                 for j in range(Ny):
-                    core=[i,j]
-                    R=v*t0
-                    pro_map_ij=get_type2_promap(core,R) # 条件概率
-                    temp_pro_map+=targeti_pro_map[i,j]*pro_map_ij # 全概率公式
-            targeti_pro_map=temp_pro_map
+                    core = [i, j]
+                    R = v * t0
+                    pro_map_ij = get_type2_promap(core, R)  # 条件概率
+                    temp_pro_map += targeti_pro_map[i, j] * pro_map_ij  # 全概率公式
+            targeti_pro_map = temp_pro_map
         init_pro_map.append(targeti_pro_map)
+
 
 # 初始化两个信息素图
 def init_phero_map(UAV_group):
     for UAV in UAV_group:
-        UAV.phero_rej_map=np.ones((Nx,Ny))*init_phero
+        UAV.phero_rej_map = np.ones((Nx, Ny)) * init_phero
+
 
 # 高斯分布的概率密度函数
 def Gaussian(x, y, mu_x, mu_y, sigma):
@@ -326,6 +375,7 @@ def Gaussian(x, y, mu_x, mu_y, sigma):
     right = np.exp((-(x - mu_x) ** 2 - (y - mu_y) ** 2) / (2 * sigma_e))
     left = 1 / (2 * np.pi * sigma)
     return left * right
+
 
 if __name__ == '__main__':
     iter_num = 2000

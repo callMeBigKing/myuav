@@ -62,3 +62,16 @@ def get_type2_promap(core,R):
             pro_map[2 * core[0] - point[0], 2 * core[1] - point[1]] = sigma
     return pro_map
 
+
+def get_neighbor(site):
+    # 返回摩尔邻居list
+    neighbor_list = []  # 里面放tuple
+    x = site[0]
+    y = site[1]
+    for neighbor_x in range(3):
+        for neighbor_y in range(3):
+            g_x = x + neighbor_x - 1
+            g_y = y + neighbor_y - 1
+            if (0 <= g_x < Nx and 0 <= g_y < Ny):
+                neighbor_list.append((g_x, g_y))
+    return neighbor_list
