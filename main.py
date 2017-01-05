@@ -365,6 +365,7 @@ def get_neighbor(site):
 
 def get_Gauss_map(core, sigma):
     # 返回gauss
+    # 计算太慢了，加一个手工判断过程
     pro_map = np.zeros((Nx, Ny))
     mu_x = core[0]  # mean_x
     mu_y = core[1]  # mean_y
@@ -376,7 +377,12 @@ def get_Gauss_map(core, sigma):
             y_j = j * Ly + Ly / 2  # 第j行格子的y轴坐标
             low_bound_y = y_j - Ly / 2
             hig_bound_y = y_j + Ly / 2
-            pro_map[i, j],err = dblquad(Gaussian, low_bound_x, hig_bound_x, lambda x: low_bound_y,
+            # 如果中心点乘以面积小于10^-4，则用中心均值代替
+            cell_pro=Gaussian(x_i,y_j,mu_x,mu_y,sigma)*Lx*Ly
+            if cell_pro<10**-4:
+                pro_map[i, j]=cell_pro
+            else:
+                pro_map[i, j],err = dblquad(Gaussian, low_bound_x, hig_bound_x, lambda x: low_bound_y,
                                     lambda x: hig_bound_y, args=(mu_x, mu_y, sigma))
             # 上面会返回误差
     # 归一化
@@ -521,7 +527,7 @@ def target_move_border_process(core, new_core, phi):
 
 def get_target_map():
     # 返回目标存在图 ,
-    target_map = np.zeors((Nt, Nx, Ny))
+    target_map = np.zeros((Nt, Nx, Ny))
     for target_site, t in zip(target_true_msg, range(Nt)):
         target_map[t, target_site[0], target_site[1]] = 1
     return target_map
