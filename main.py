@@ -85,7 +85,7 @@ class UAV:
         self.visit_map = np.zeros((Nx, Ny))
 
         # 访问(探测)结果图
-        self.detect_flag = np.ones((1, Nt))
+        self.detect_flag = np.ones(Nt)
         # 探测标志位，需要搜索用1来表示，不需要搜索则用0来表示 初始化为1
 
         # 访问信息图 数据结构同概率分布图
@@ -113,9 +113,9 @@ class UAV:
         # 决策函数，根据性能指标计算，返回可行路径中的一点
         # 暂时用前序遍历算法 处理一下
         path = []
-        path.append(self.site)
+        path.append(tuple(self.site))
         best_path = []  # 用来存储最佳路径
-        best_value = 0  # 用来存储最佳value
+        best_value = -np.inf  # 用来存储最佳value
 
         # 先满上
         while len(path) < search_step:
@@ -151,6 +151,7 @@ class UAV:
         self.path=best_path
         return best_path
 
+
     def cal_path_predict_map(self):
         # 多次调用函数 self.predic_target() 预测目标位置
         for i in range(search_step):
@@ -168,7 +169,7 @@ class UAV:
                 continue
             pro_value = 0
             for j in range(Nt):
-                if self.detect_flag == 0:  # 不需要继续搜索的目标直接跳过
+                if self.detect_flag[j] == 0:  # 不需要继续搜索的目标直接跳过
                     continue
                 pro = self.path_predict_map[i, j, site[0], site[1]]
                 pro_value += np.log(1 / (1 - pro))
@@ -260,12 +261,17 @@ class UAV:
                     for condition_j in range(Ny):  # 条件概率 条件y_i
                         u_x = condition_i * Lx + Lx / 2
                         u_y = condition_j * Ly + Ly / 2
+                        if(u_x==285):
+                            print('')
                         new_u_x = u_x + v * delta_t * np.cos(phi)
                         new_u_y = u_y + v * delta_t * np.sin(phi)
                         new_u_x, new_u_y = target_move_border_process([u_x, u_y], [new_u_x, new_u_y], phi) # 出界处理，函数里面有判断是否出界
                         site_x=np.floor(new_u_x / Lx)
                         site_y=np.floor(new_u_y / Ly)
-                        predict_pro_map[site_x,site_y]+=now_pro_map_ij[condition_i,condition_j]
+                        try:
+                            predict_pro_map[site_x,site_y]+=now_pro_map_ij[condition_i,condition_j]
+                        except:
+                            print('  ')
             self.pro_maps[target_i] = predict_pro_map
 
     def update_switch_map(self,iter):
@@ -430,8 +436,8 @@ def target_move():
     for target, type, target_true in zip(target_msg, target_type, target_true_msg):
         u_x = target_true[0] * Lx + Lx / 2
         u_y = target_true[1] * Ly + Ly / 2
-        v = target_msg[2]
-        phi = target_msg[3]
+        v = target[2]
+        phi = target[3]
         new_u_x, new_u_y = 0, 0
         if type == 0 or type == 1:
             # 正态分布
@@ -487,43 +493,47 @@ def target_move():
         target_path.append(target_true)
 
 
+
+
+
 def target_move_border_process(core, new_core, phi):
-    # 目标运动的边界处理
+    # 目标运动的边界处理，类似分成四个象限
+
     u_x = core[0]
     u_y = core[1]
 
     new_u_x = new_core[0]
     new_u_y = new_core[1]
+    if not (0 <= new_u_x < Nx * Lx and 0 <= new_u_y < Ny * Ly):
+        x_len=[u_x,Nx * Lx -u_x]
+        y_len=[u_y,Ny * Ly -u_y]
 
-    if not (0 < new_u_x < Nx * Lx and 0 < new_u_y < Ny * Ly):
-        # 出去了那么就用sin cos 等方法来处理
-        if np.pi / 2 < phi < 3 * np.pi / 2:
-            add_y = u_x * np.tan(np.pi - phi)
-            new_u_y = u_y + add_y
-            new_u_x = 0
-            if new_u_y < 0:
-                add_x = u_y / np.tan(np.abs(np.pi - phi))
-                new_u_y = 0
-                new_u_x = u_x - add_x
-            if new_u_y > Ny * Ly:
-                add_x = (Ny * Ly - u_y) / np.tan(np.abs(np.pi - phi))
-                new_u_y = Ny * Ly
-                new_u_x = u_x - add_x
+        phi1 = np.arctan(y_len[1]/x_len[1])
+        phi2= np.arctan( x_len[1]/y_len[1])
+
+        phi3 = np.arctan( x_len[0]/y_len[1])
+        phi4 = np.arctan( y_len[1]/x_len[0])
+
+        phi5 = np.arctan( y_len[0]/x_len[0])
+        phi6 = np.arctan( x_len[0]/y_len[0])
+
+        phi7 = np.arctan( x_len[1]/y_len[0])
+        phi8 = np.arctan( y_len[0]/x_len[1])
+
+        if phi1<=phi<phi1+phi2+phi3:
+            new_u_y=Ny * Ly-0.1
+            new_u_x=u_x+y_len[1]*np.arctan(np.pi/2-phi)
+        elif phi1+phi2+phi3<=phi<phi1+phi2+phi3+phi4+phi5:
+            new_u_x=0
+            new_u_y=u_y+x_len[0]*np.arctan(np.pi-phi)
+        elif phi1 + phi2 + phi3 + phi4 + phi5 <= phi <phi1 + phi2 + phi3 + phi4 + phi5+phi6+phi7 :
+            new_u_y=0
+            new_u_x=u_x+y_len[0]*np.arctan(phi-np.pi*3/2)
         else:
-            add_y = (Nx * Lx - u_x) * np.tan(phi)
-            new_u_y = u_y + add_y
-            new_u_x = Nx * Lx
-            if new_u_y < 0:
-                add_x = np.abs(u_y / np.tan(phi))
-                new_u_y = 0
-                new_u_x = u_x + add_x
-            if new_u_y > Ny * Ly:
-                add_x = np.abs((Ny * Ly - u_y) / np.tan(phi))
-                new_u_y = Ny * Ly
-                new_u_x = u_x + add_x
+            new_u_x=Nx*Lx-0.1
+            new_u_y=u_y+x_len[1]*np.arctan(phi)
 
     return new_u_x, new_u_y
-
 
 def get_target_map():
     # 返回目标存在图 ,
@@ -634,7 +644,8 @@ def init_UAV_position(UAV_group):
 
 # 成功探测到目标后 改变 detect_flag
 def set_detect_flag(UAV_group, target_map, index_visit_map):
-    add_detect_flag = np.ones(Nv) # 1 探测 0 不探测 注意初始化为1
+    # 这里的探测无关于连通图，一架无人机探测到了等价于所有无人机探测到
+    add_detect_flag = np.ones(Nt) # 1 探测 0 不探测 注意初始化为1
     all_visit_map = np.zeros((Nx, Ny))
 
     for i in range(Nv):
@@ -642,10 +653,10 @@ def set_detect_flag(UAV_group, target_map, index_visit_map):
     for i in range(Nt):
         temp = all_visit_map * target_map[i]
         flag = np.sum(temp)
-        if flag > 0: # 表示探测到了
+        if flag > 0: # 表示探测到了目标i
             add_detect_flag[i] = 0
     for UAV in UAV_group:
-        UAV.detect_flag = ((UAV.detect_flag * add_detect_flag) > np.zeros(Nv)).astype(float)
+        UAV.detect_flag = ((UAV.detect_flag * add_detect_flag) > np.zeros(Nt)).astype(float)
 
 def get_index_plan_map(UAV_group):
     # 带无人机下标的路径计划map 三维
@@ -676,8 +687,8 @@ if __name__ == '__main__':
     # 初始化搜索图
     init_pro_map(UAV_group)  # 初始化概率分布图，每架无人机一样
     init_phero_map(UAV_group)  # 初始化信息素大小
-
     for iter in range(iter_num):
+        target_move()
         # 　连通图
         connect_map = cal_connect_map(UAV_group)  # 连通图，每走一步就重新计算一下
 
@@ -710,7 +721,6 @@ if __name__ == '__main__':
             UAV.update_switch_map(iter)
             UAV.update_phero()
             UAV.predic_target()
-
             # 无人机下一步
             UAV.decision()
         # 目标移动
@@ -718,41 +728,6 @@ if __name__ == '__main__':
 
     # 这里应当添加画图
     # 最后结尾的时候最后一个决策也没有判断结果
-
-
-    # for i in range(iter_num):
-    #     # 先决策，走一步
-    #     for UAV, i in zip(UAV_group, range(Nv)):
-    #         # 循环的时候关键点在于计算 Vist_map and  Detect_map
-    #         UAVi_path = UAV.decision()  #
-    #         index_visit_map[i, UAV.site[0], UAV.site[1]] = 1  # 对访问位置信息赋值
-    #         for path_site in UAVi_path:
-    #             index_plan_map[i, path_site[0], path_site[1]] = 1  # 无人机路径信息进行赋值
-    #     # 目标走一步
-    #     target_move()
-    #     target_map = get_target_map()  # 目标存在图
-    #     # 计算无人机的V和R
-    #     for i in range(Nv):
-    #         UAVi_visit_map = np.zeros((Nx, Ny))  # V矩阵
-    #         UAVi_detect_map = np.zeros((Nx, Ny))  # R阵
-    #         UAVi_phero_plan_map = np.zeros((Nx, Ny))  # route plan 阵
-    #
-    #         for j in range(Nv):
-    #             if connect_map[j, i] == 1:
-    #                 UAVi_visit_map += index_visit_map[i, :, :]
-    #                 if i != j:  # 这里不包括自己的信息
-    #                     UAVi_phero_plan_map += index_plan_map[i, :, :]
-    #
-    #         UAV_group[i].phero_plan_map = UAVi_phero_plan_map
-    #         UAV_group[i].visit_map = UAVi_visit_map
-    #         # 这里是个三维的
-    #         UAV_group[i].detect_maps = np.array([UAVi_visit_map * detect_map for detect_map in target_map])
-    #
-    #     set_detect_flag(UAV_group, target_map, index_visit_map)  # 设置已探测到的目标flag
-    #
-    #     UAV.update_search()
-    #     UAV.update_phero()
-    #     UAV.predic_target()
 
 
         # 　余下内容
